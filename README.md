@@ -1,8 +1,10 @@
-# Dodge 'em
-![](/assets/image.png)
-A classic arcade game for 32Blit.
+# Dodge'em
+![](/assets/image.png)<BR>
+![](/assets/Dodge'em0.bmp)<BR>
+A classic arcade game for 32Blit.<BR>
+!! early beta version !!<BR>
+<BR>
 
-![](/assets/Dodge'em0.bmp)
 
 
 For local build:
