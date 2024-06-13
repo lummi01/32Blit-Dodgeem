@@ -46,7 +46,6 @@ struct GAME
     short dots;
     int score;
     short life = 3;
-    short blend;
 };
 
 struct CAR
@@ -66,21 +65,27 @@ CAR o[2];
 
 Timer player_timer;
 Timer oppo_timer;
+Tween blend_tween;
 
-void new_level(bool dots);
+void new_level();
 
 void dots()
 {
-    game.dots++;
-    if (game.dots == 192)
+    game.dots--;
+    if (game.dots == 0)
     {
-        game.state = 0;
-        new_level(true);
+        player_timer.stop();
+        oppo_timer.stop();
+        blend_tween.init(tween_linear,0 , 7, 400, 1);
+        blend_tween.start();
+        game.state = 2;
     }
 }
 
 void player_control()
 {
+    channels[0].trigger_attack();
+
     Vec2 vel[4]{Vec2(1,0),Vec2(0,1),Vec2(-1,0),Vec2(0,-1)};
 
     p.pos += vel[p.sprite];
@@ -90,8 +95,9 @@ void player_control()
 
     p.step++;
     if (p.step == 8)
+    {
         p.step =0;
-
+    }
     if (p.move > 0)
     {
         p.move--;
@@ -181,6 +187,7 @@ void player_control()
         if (game.field[y][x] > 19)
         {
             game.field[y][x] -= 16;
+            channels[1].trigger_attack();
             game.score++;
             dots();
         }
@@ -190,9 +197,12 @@ void player_control()
     {
         if (p.pos.x+2 < o[i].pos.x+6 && p.pos.x+6 > o[i].pos.x+2 && p.pos.y+2 < o[i].pos.y+6 && p.pos.y+6 > o[i].pos.y+2)
         {
+            player_timer.stop();
+            oppo_timer.stop();
             game.life--;
-            game.state = 0;
-            new_level(false);
+            game.state = 2;
+            blend_tween.init(tween_linear,0 , 7, 400, 1);
+            blend_tween.start();
             break;
         }
     }
@@ -254,7 +264,7 @@ void oppo_update(Timer &t)
     }
 }
 
-void new_level(bool dots)
+void new_level()
 {
     player_timer.init(player_update, 15, -1);
     player_timer.stop();
@@ -262,7 +272,7 @@ void new_level(bool dots)
     oppo_timer.init(oppo_update, 20, -1);
     oppo_timer.stop();
 
-    if (dots)
+    if (game.dots == 0)
     {
         for (int y=0; y<6; y++)
         {
@@ -274,7 +284,7 @@ void new_level(bool dots)
                 game.field[y + 9][x + 12] += 16;
             }
         }
-        game.dots = 0;
+        game.dots = 192;
     }
 
     p.sprite = 3;
@@ -300,20 +310,44 @@ void init()
     set_screen_mode(ScreenMode::lores);
     screen.sprites = Surface::load(asset_sprites);
 
+    channels[0].waveforms = Waveform::SQUARE;
+    channels[0].volume = 6000;
+    channels[0].frequency = 100;
+    channels[0].attack_ms = 5;
+    channels[0].decay_ms = 10;
+    channels[0].sustain = 10;
+    channels[0].release_ms = 5;
+
+    channels[1].waveforms = Waveform::SQUARE;
+	channels[1].volume = 12000;
+    channels[1].frequency = 2500;
+    channels[1].attack_ms = 5;
+    channels[1].decay_ms = 10;
+    channels[1].sustain = 5;
+    channels[1].release_ms = 5;
+
     game.life--;
-    new_level(true);
+    new_level();
+    blend_tween.init(tween_linear,7 , 0, 400, 1);
+    blend_tween.start();
+    game.state = 3;
 }
 
 // render
 void render(uint32_t time) 
 {
-    if (game.state < 2)
+    if (game.state < 4)
     {
+        if (game.state > 1)
+        {
+            screen.pen = Pen(0, 0, 0);
+            screen.clear();
+        }
         screen.alpha = 255;
         screen.mask = nullptr;
 
-        for (int x=0;x<20;x++)
-            for (int y=0;y<15;y++)
+        for (int x=blend_tween.value;x<(20 - blend_tween.value);x++)
+            for (int y=blend_tween.value;y<(15 - blend_tween.value);y++)
                 screen.sprite(game.field[y][x], Point(x * 8, y * 8));
 
         for (int i=0; i<2; i++)
@@ -326,11 +360,6 @@ void render(uint32_t time)
             
         screen.pen = Pen(255, 255, 255);
         screen.text(std::to_string(game.score), font, Point(108, 68), true, TextAlign::center_right);
-    }
-    else
-    {
-        for (int i=0; i<48; i++)
-        {}
     }
 }
 
@@ -353,8 +382,18 @@ void update(uint32_t time)
             game.state = 1;
         }
     }
-    else if (game.state == 2)
+    else if (blend_tween.is_finished())
     {
-        
+        if (game.state == 2)
+        {
+            new_level();
+            blend_tween.init(tween_linear,7 , 0, 400, 1);
+            blend_tween.start();
+            game.state = 3;
+        }
+        else if (game.state == 3)
+        {
+            game.state = 0;
+        }
     }
 }
