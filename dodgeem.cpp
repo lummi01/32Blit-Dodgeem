@@ -1,6 +1,8 @@
 // Dodge'em
 // 2024 M. Gerloff
 
+
+#include <list>
 #include "dodgeem.hpp"
 #include "assets.hpp"
 
@@ -58,6 +60,13 @@ struct CAR
     Vec2 vel;
 };
 
+struct PARTICLE
+{
+	Vec2 pos;
+	int alpha;
+    float radius;
+};
+
 
 GAME game;
 CAR p;
@@ -65,7 +74,36 @@ CAR o[2];
 
 Timer player_timer;
 Timer oppo_timer;
+Tween crash_tween;
 Tween blend_tween;
+Tween sound_tween;
+
+static std::list<PARTICLE> particles;
+
+void NewParticle(float x, float y)
+{
+    PARTICLE p;
+    p.pos = Vec2(x,y) + Vec2(rand() %7, rand() %7);
+    p.alpha = 96 + rand() %160;
+    p.radius = 0;
+    particles.push_back(p);
+}
+
+void UpdateParticle()
+{
+    for(auto p = particles.begin(); p != particles.end();) 
+	{
+        if(p->alpha < 4) 
+		{
+            p = particles.erase(p);
+            continue;
+        }
+        p->alpha-=4;
+        p->radius+=.2f;
+        ++p;
+    }
+}
+
 
 void new_level();
 
@@ -199,10 +237,9 @@ void player_control()
         {
             player_timer.stop();
             oppo_timer.stop();
-            game.life--;
-            game.state = 2;
-            blend_tween.init(tween_linear,0 , 7, 400, 1);
-            blend_tween.start();
+            crash_tween.start();
+            sound_tween.start();
+            game.state = 5;
             break;
         }
     }
@@ -311,7 +348,7 @@ void init()
     screen.sprites = Surface::load(asset_sprites);
 
     channels[0].waveforms = Waveform::SQUARE;
-    channels[0].volume = 6000;
+    channels[0].volume = 4000;
     channels[0].frequency = 100;
     channels[0].attack_ms = 5;
     channels[0].decay_ms = 10;
@@ -319,25 +356,35 @@ void init()
     channels[0].release_ms = 5;
 
     channels[1].waveforms = Waveform::SQUARE;
-	channels[1].volume = 12000;
+	channels[1].volume = 8000;
     channels[1].frequency = 2500;
     channels[1].attack_ms = 5;
     channels[1].decay_ms = 10;
     channels[1].sustain = 5;
     channels[1].release_ms = 5;
 
+    channels[2].waveforms = Waveform::NOISE;
+	channels[2].volume = 12000;
+    channels[2].frequency = 500;
+    channels[2].attack_ms = 5;
+    channels[2].decay_ms = 10;
+    channels[2].sustain = 50;
+    channels[2].release_ms = 200;
+
     game.life--;
     new_level();
     blend_tween.init(tween_linear,7 , 0, 400, 1);
     blend_tween.start();
+    crash_tween.init(tween_linear,0 , 1, 2500, 1);
+    sound_tween.init(tween_linear,1000 , 100, 500, 1);
     game.state = 3;
 }
 
 // render
 void render(uint32_t time) 
 {
-    if (game.state < 4)
-    {
+//    if (game.state < 4)
+//    {
         if (game.state > 1)
         {
             screen.pen = Pen(0, 0, 0);
@@ -356,11 +403,22 @@ void render(uint32_t time)
         screen.sprite(32 + p.sprite, Point(p.pos.x, p.pos.y)); // Player
 
         for (int i=0; i<game.life; i++)
-            screen.sprite(35, Point(51 + (i*6), 64));
+            screen.sprite(35, Point(51 + (i*6), 63));
+
+        screen.pen = Pen(255, 255, 255);
+        if (game.state == 5)
+        {
+            for(auto &p : particles)
+    	    {
+    	    	screen.alpha = p.alpha;
+                screen.circle(Point(p.pos.x, p.pos.y),p.radius);
+    	    }
+    	    screen.alpha = 255;
+        }
             
         screen.pen = Pen(255, 255, 255);
         screen.text(std::to_string(game.score), font, Point(108, 68), true, TextAlign::center_right);
-    }
+//    }
 }
 
 // update
@@ -381,6 +439,40 @@ void update(uint32_t time)
             oppo_timer.start();
             game.state = 1;
         }
+    }
+    else if (game.state == 5)
+    {
+        if (crash_tween.is_finished())
+        {
+            if (particles.size() == 0)
+            {
+                game.life--;
+                if (game.life < 0)
+                {
+                    for (int y=0; y<15; y++)
+                        for (int x=0; x<20; x++)
+                            if (game.field[y][x] > 19 && game.field[y][x] < 32)
+                                game.field[y][x] -= 16;
+                    game.dots = 0;
+                    new_level();
+                    game.score = 0;
+                    game.life = 2;
+                }
+                game.state = 2;
+                blend_tween.init(tween_linear,0 , 7, 400, 1);
+                blend_tween.start();
+            }
+        }
+        else if (rand() %4 == 0)
+        {
+            NewParticle(p.pos.x, p.pos.y);
+        }
+        if (sound_tween.is_running())
+        {    
+            channels[2].frequency = sound_tween.value;
+            channels[2].trigger_attack();
+        }
+        UpdateParticle();
     }
     else if (blend_tween.is_finished())
     {
