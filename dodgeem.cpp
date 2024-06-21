@@ -46,8 +46,10 @@ struct GAME
         {9,1,9,9,9,9,9,9,8,2,2,2,9,9,9,9,9,9,1,9},
         {1,9,9,9,9,9,9,9,8,4,4,4,9,9,9,9,9,9,9,1}};
     short dots;
-    int score;
+    int score[2];
     short life = 3;
+    short speed = 30;
+    short car = 1;
 };
 
 struct CAR
@@ -60,6 +62,15 @@ struct CAR
     Vec2 vel;
 };
 
+struct CONFETTI
+{
+    Vec2 pos;
+    Vec2 vel;
+    float rot;
+    float drot;
+    Pen c;
+};
+
 struct PARTICLE
 {
 	Vec2 pos;
@@ -68,17 +79,23 @@ struct PARTICLE
 };
 
 
+
+
 GAME game;
 CAR p;
 CAR o[2];
+CONFETTI confetti[25];
 
 Timer player_timer;
 Timer oppo_timer;
 Tween crash_tween;
 Tween blend_tween;
 Tween sound_tween;
+Tween score_tween;
 
 static std::list<PARTICLE> particles;
+
+void new_level();
 
 void NewParticle(float x, float y)
 {
@@ -104,8 +121,41 @@ void UpdateParticle()
     }
 }
 
+void NewConfetti(short i)
+{
+    Pen color[7]{
+        Pen(255,255,255),
+        Pen(255,0,0),
+        Pen(0,255,0),
+        Pen(0,0,255),
+        Pen(255,255,0),
+        Pen(255,0,255),
+        Pen(0,255,255)};
+    
+    confetti[i].pos = Vec2(rand() %156, 0);
+    confetti[i].vel = Vec2((rand() %20 * .01f) -.1f, (rand() %10 *.01f) + .2f);
+    confetti[i].rot = rand() %3;
+    confetti[i].drot = (rand() %5 *.01f) + .05f;
+    confetti[i].c = color[rand() %7];
+}
 
-void new_level();
+void UpdateConfetti()
+{
+    for(int i = 0; i<25; i++) 
+	{
+        if(confetti[i].pos.x < -2 || confetti[i].pos.y > 159 || confetti[i].pos.y > 120) 
+		{
+            NewConfetti(i);
+            continue;
+        }
+        confetti[i].pos += confetti[i].vel;
+        if (confetti[i].rot < 0 || confetti[i].rot > 2)
+            confetti[i].drot = -confetti[i].drot;
+        confetti[i].rot += confetti[i].drot;
+    }
+}
+
+
 
 void dots()
 {
@@ -116,7 +166,18 @@ void dots()
         oppo_timer.stop();
         blend_tween.init(tween_linear,0 , 7, 400, 1);
         blend_tween.start();
-        game.state = 2;
+        game.car++;
+        if (game.car > 2)
+        {
+            game.car = 1;
+            game.speed -= 5;
+            if (game.speed < 15)
+            {
+                game.speed = 15;
+                game.car = 2;
+            }
+        }
+        game.state = 3;
     }
 }
 
@@ -226,12 +287,12 @@ void player_control()
         {
             game.field[y][x] -= 16;
             channels[1].trigger_attack();
-            game.score++;
+            game.score[0]++;
             dots();
         }
     }
 
-    for (int i=0; i<2; i++)
+    for (int i=0; i<game.car; i++)
     {
         if (p.pos.x+2 < o[i].pos.x+6 && p.pos.x+6 > o[i].pos.x+2 && p.pos.y+2 < o[i].pos.y+6 && p.pos.y+6 > o[i].pos.y+2)
         {
@@ -239,7 +300,7 @@ void player_control()
             oppo_timer.stop();
             crash_tween.start();
             sound_tween.start();
-            game.state = 5;
+            game.state = 2;
             break;
         }
     }
@@ -253,7 +314,7 @@ void player_update(Timer &t)
 void oppo_update(Timer &t)
 {
     Vec2 vel[4]{Vec2(1,0),Vec2(0,1),Vec2(-1,0),Vec2(0,-1)};
-    for (int i=0; i<2; i++)
+    for (int i=0; i<game.car; i++)
     {
         o[i].pos += vel[o[i].sprite];
 
@@ -306,7 +367,7 @@ void new_level()
     player_timer.init(player_update, 15, -1);
     player_timer.stop();
 
-    oppo_timer.init(oppo_update, 20, -1);
+    oppo_timer.init(oppo_update, game.speed, -1);
     oppo_timer.stop();
 
     if (game.dots == 0)
@@ -330,13 +391,14 @@ void new_level()
     p.pos = Vec2(0,60);
     p.vel = Vec2(0,-1);
 
-    for (int i=0; i<2; i++)
+    short row = rand() %5;
+    for (int i=0; i<game.car; i++)
     {
         o[i].sprite = 3;
         o[i].step = 0;
         o[i].move = 0;
-        o[i].row = 1 + (i);
-        o[i].pos = Vec2(120 + (i * 8),61);
+        o[i].row = row + (i);
+        o[i].pos = Vec2(112 + ((row + i) * 8),61);
         o[i].vel = Vec2(1 - (i * 2),1 - (i * 2));
     }
 }
@@ -371,54 +433,84 @@ void init()
     channels[2].sustain = 50;
     channels[2].release_ms = 200;
 
-    game.life--;
-    new_level();
     blend_tween.init(tween_linear,7 , 0, 400, 1);
     blend_tween.start();
     crash_tween.init(tween_linear,0 , 1, 2500, 1);
     sound_tween.init(tween_linear,1000 , 100, 500, 1);
-    game.state = 3;
+    score_tween.init(tween_sine, 0.0f, 255.0f, 3500, -1);
+
+    if (read_save(game.score[1]) == false)
+        game.score[1] = 0;
+
+    for (int i=0; i<25; i++)
+    {
+        NewConfetti(i);
+        confetti[i].pos.y = rand() %120;
+    }
+
+    game.life--;
+    game.speed = 30;
+    game.car = 1;
+    new_level();
+
+    game.state = 4;
 }
 
 // render
 void render(uint32_t time) 
 {
-//    if (game.state < 4)
-//    {
-        if (game.state > 1)
-        {
-            screen.pen = Pen(0, 0, 0);
-            screen.clear();
-        }
-        screen.alpha = 255;
-        screen.mask = nullptr;
+    screen.alpha = 255;
+    screen.mask = nullptr;
 
-        for (int x=blend_tween.value;x<(20 - blend_tween.value);x++)
-            for (int y=blend_tween.value;y<(15 - blend_tween.value);y++)
-                screen.sprite(game.field[y][x], Point(x * 8, y * 8));
+    if (game.state > 2)
+    {
+        screen.pen = Pen(0, 0, 0);
+        screen.clear();
+    }
+    for (int x=blend_tween.value;x<(20 - blend_tween.value);x++)
+        for (int y=blend_tween.value;y<(15 - blend_tween.value);y++)
+            screen.sprite(game.field[y][x], Point(x * 8, y * 8));
 
-        for (int i=0; i<2; i++)
-             screen.sprite(48 + o[i].sprite + (16 * i), Point(o[i].pos.x, o[i].pos.y)); // Opponent
+    if (game.state < 3)
+    {
+        for (int i=0; i<game.car; i++)
+            screen.sprite(48 + o[i].sprite + (16 * i), Point(o[i].pos.x, o[i].pos.y)); // Opponent
 
         screen.sprite(32 + p.sprite, Point(p.pos.x, p.pos.y)); // Player
+    }
 
-        for (int i=0; i<game.life; i++)
-            screen.sprite(35, Point(51 + (i*6), 63));
+    screen.pen = Pen(255, 255, 255);
+    screen.text(std::to_string(game.score[0]), minimal_font, Point(109, 67), true, TextAlign::center_right);
 
-        screen.pen = Pen(255, 255, 255);
-        if (game.state == 5)
+    for (int i=0; i<game.life; i++)
+        screen.sprite(35, Point(51 + (i*6), 63));
+
+    if (game.state == 5)
+    {
+        screen.pen = Pen(128, 128, 128);
+        if (game.score[0] == game.score[1])
         {
-            for(auto &p : particles)
-    	    {
-    	    	screen.alpha = p.alpha;
-                screen.circle(Point(p.pos.x, p.pos.y),p.radius);
-    	    }
-    	    screen.alpha = 255;
+            screen.sprite(Rect(0, 5, 2, 2), Point(72, 14));
+            screen.text("-- New Top Score --", minimal_font, Point(80, 38), true, TextAlign::center_center);
+            for(int i=0; i<25; i++)
+      	    {
+      	    	screen.pen = confetti[i].c;
+                screen.rectangle(Rect(confetti[i].pos.x, confetti[i].pos.y - confetti[i].rot, 3, 2 * confetti[i].rot));
+       	    }
         }
-            
-        screen.pen = Pen(255, 255, 255);
-        screen.text(std::to_string(game.score), font, Point(108, 68), true, TextAlign::center_right);
-//    }
+        else
+            screen.text("Top Score: " + std::to_string(game.score[1]), minimal_font, Point(80, 32), true, TextAlign::center_center);
+        screen.pen = Pen(255, 0, 0);
+        screen.text("Press X", minimal_font, Point(80, 92), true, TextAlign::center_center);
+    }
+    else if (game.state == 2)
+    {
+        for(auto &p : particles)
+  	    {
+  	    	screen.alpha = p.alpha;
+            screen.circle(Point(p.pos.x, p.pos.y),p.radius);
+   	    }
+    }
 }
 
 // update
@@ -440,7 +532,7 @@ void update(uint32_t time)
             game.state = 1;
         }
     }
-    else if (game.state == 5)
+    else if (game.state == 2)
     {
         if (crash_tween.is_finished())
         {
@@ -449,18 +541,16 @@ void update(uint32_t time)
                 game.life--;
                 if (game.life < 0)
                 {
-                    for (int y=0; y<15; y++)
-                        for (int x=0; x<20; x++)
-                            if (game.field[y][x] > 19 && game.field[y][x] < 32)
-                                game.field[y][x] -= 16;
+                    if (game.score[0] > game.score[1])
+                    {
+                        game.score[1] = game.score[0];
+                        write_save(game.score[1]);
+                    }                
                     game.dots = 0;
-                    new_level();
-                    game.score = 0;
-                    game.life = 2;
                 }
-                game.state = 2;
-                blend_tween.init(tween_linear,0 , 7, 400, 1);
+                blend_tween.init(tween_linear,0 , 6, 400, 1);
                 blend_tween.start();
+                game.state = 3;
             }
         }
         else if (rand() %4 == 0)
@@ -474,16 +564,42 @@ void update(uint32_t time)
         }
         UpdateParticle();
     }
-    else if (blend_tween.is_finished())
+    else if (game.state == 5)
     {
-        if (game.state == 2)
+        if (buttons.released & Button::A)
         {
+            for (int y=0; y<15; y++)
+                for (int x=0; x<20; x++)
+                    if (game.field[y][x] > 19 && game.field[y][x] < 32)
+                        game.field[y][x] -= 16;
+            game.dots = 0;
             new_level();
+            game.score[0] = 0;
+            game.life = 2;
+            game.speed = 30;
+            game.car = 1;
             blend_tween.init(tween_linear,7 , 0, 400, 1);
             blend_tween.start();
-            game.state = 3;
+            game.state = 4;
         }
-        else if (game.state == 3)
+        if (game.score[0] == game.score[1])
+            UpdateConfetti();
+    }
+    else if (blend_tween.is_finished())
+    {
+        if (game.state == 3)
+        {
+            if (game.life < 0)
+                game.state = 5;
+            else
+            {
+                new_level();
+                blend_tween.init(tween_linear,7 , 0, 400, 1);
+                blend_tween.start();
+                game.state = 4;
+            }
+        }
+        else if (game.state == 4)
         {
             game.state = 0;
         }
