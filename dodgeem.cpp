@@ -8,8 +8,6 @@
 
 using namespace blit;
 
-Font font(font3x5);
-
 struct GAME
 {
     short state;
