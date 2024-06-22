@@ -12,7 +12,3 @@ assets.cpp:
   assets/spritesheet.png:
     name: asset_sprites
 
-  assets/3x5font.png:
-    name: font3x5
-    type: font/image
-
